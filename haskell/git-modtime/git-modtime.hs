@@ -1,0 +1,106 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ < 802
+main :: IO ()
+main = do
+  let (ghcMaj, ghcMin) = divMod (__GLASGOW_HASKELL__ :: Int) 100
+      ghcVer = show ghcMaj ++ "." ++ show ghcMin
+  putStrLn $ "GHC version: " ++ ghcVer ++ " is not supported by git-modtime script."
+#else
+import Data.List
+import Data.Maybe
+import Data.Char (isSpace)
+import Control.Monad
+import Data.Time.Format (parseTimeM, iso8601DateFormat, defaultTimeLocale)
+import System.FilePath (takeDirectory, (</>))
+import System.Directory (setModificationTime, doesFileExist, doesDirectoryExist, getHomeDirectory)
+import System.Environment (getArgs)
+import System.Process (readProcess)
+import System.IO (IOMode(WriteMode), withFile, hPutStrLn, stderr)
+import qualified Data.Map.Strict as Map
+
+prefix :: String
+prefix = "<git-modtime.hs> "
+
+report :: String -> IO ()
+report msg = hPutStrLn stderr $ prefix ++ msg
+
+restoreFileModtime :: String -> FilePath -> IO ()
+restoreFileModtime rev fp = do
+  let iso8601 = iso8601DateFormat (Just "%H:%M:%S%z")
+  modTimeStr <- readProcess "git" ["log", "--pretty=format:%cI", "-1", rev, "--", fp] ""
+  modTime <- parseTimeM True defaultTimeLocale iso8601 modTimeStr
+  setModificationTime fp modTime
+  report $ "[" ++ modTimeStr ++ "] " ++ fp
+
+toFlags :: FilePath -> [String] -> Map.Map String String
+toFlags homeDir =
+  checkFlags . Map.fromList . uncurry zip . foldr (\x (l, r) -> (x : r, l)) ([], [])
+  where
+    checkFlags flags = do
+      let unknownFlags = Map.keys (flags Map.\\ defaultFlags)
+      if not (null unknownFlags)
+        then error $ prefix ++ "Unknown flags: " ++ intercalate ", " unknownFlags
+        else Map.union defaultFlags flags
+    defaultFlags = Map.fromList [("-f", homeDir </> ".stack" </> "tree-contents.txt")]
+
+-- | Overwrites the file with contents hashes and return only the names for unchanged
+-- files.
+checkUnchanged :: FilePath -> [FilePath] -> IO [FilePath]
+checkUnchanged contentsFilePath filePaths = do
+  pathExists <- doesDirectoryExist (takeDirectory contentsFilePath)
+  unless pathExists $
+    error $
+    prefix ++ "Provided path does not exist: " ++ takeDirectory contentsFilePath
+  contentsFileExists <- doesFileExist contentsFilePath
+  oldHashesMap <-
+    if contentsFileExists
+      then Map.fromList . catMaybes <$>
+           (mapM parseLine . lines =<< readFile contentsFilePath)
+      else mempty <$
+           report
+             ("Previous content hashes file was not found, will create it: " ++
+              contentsFilePath)
+  fmap catMaybes $
+    withFile contentsFilePath WriteMode $ \hdl ->
+      forM filePaths $ \fp -> do
+        isDirectory <- doesDirectoryExist fp
+        if isDirectory
+          then pure $ Just fp
+          else do
+          hash <- filter (not . isSpace) <$> readProcess "git" ["hash-object", fp] ""
+          hPutStrLn hdl (hash ++ " " ++ fp)
+          pure $ guard (Just hash == Map.lookup fp oldHashesMap) >> Just fp
+  where
+    parseLine ln =
+      case span (/= ' ') ln of
+        (hash, ' ':fp) -> pure $ Just (fp, hash)
+        _ -> Nothing <$ report ("Invalid format in contents cache file: " ++ ln)
+
+
+
+-- | Usage:
+--
+-- stack runghc git-modtime.hs [REV] [-f CONTENTS_FILE]
+--
+-- * REV - optional sha of a commit. Default is: HEAD
+--
+-- * CONTENTS_FILE - path to a file that will contain hashes of file contents from the
+--   repo. Default is: ~/.stack/tree-contents.txt
+--
+main :: IO ()
+main = do
+  args <- getArgs
+  homeDir <- getHomeDirectory
+  let (rev, flags) =
+        case args of
+          [] -> ("HEAD", toFlags homeDir [])
+          (('-':_):_) -> ("HEAD", toFlags homeDir args)
+          (r:rest) -> (r, toFlags homeDir rest)
+  fs <- readProcess "git" ["ls-tree", "-r", "-t", "--full-name", "--name-only", rev] ""
+  unchangedFiles <- checkUnchanged (flags Map.! "-f") $ lines fs
+  if null unchangedFiles
+    then report "No unchanged files was found"
+    else do
+    report "Restoring modification time for all these files:"
+    mapM_ (restoreFileModtime rev) unchangedFiles
+#endif
