@@ -8,11 +8,13 @@ main = do
 #else
 import Data.List
 import Data.Maybe
+import Data.Either (partitionEithers)
 import Data.Char (isSpace)
 import Control.Monad
 import Data.Time.Format (parseTimeM, iso8601DateFormat, defaultTimeLocale)
 import System.FilePath (takeDirectory, (</>))
-import System.Directory (setModificationTime, doesFileExist, doesDirectoryExist, getHomeDirectory)
+import System.Directory
+  (setModificationTime, doesFileExist, doesDirectoryExist, getAppUserDataDirectory)
 import System.Environment (getArgs)
 import System.Process (readProcess)
 import System.IO (IOMode(WriteMode), withFile, hPutStrLn, stderr)
@@ -33,7 +35,7 @@ restoreFileModtime rev fp = do
   report $ "[" ++ modTimeStr ++ "] " ++ fp
 
 toFlags :: FilePath -> [String] -> Map.Map String String
-toFlags homeDir =
+toFlags baseDir =
   checkFlags . Map.fromList . uncurry zip . foldr (\x (l, r) -> (x : r, l)) ([], [])
   where
     checkFlags flags = do
@@ -41,7 +43,7 @@ toFlags homeDir =
       if not (null unknownFlags)
         then error $ prefix ++ "Unknown flags: " ++ intercalate ", " unknownFlags
         else Map.union defaultFlags flags
-    defaultFlags = Map.fromList [("-f", homeDir </> ".stack" </> "tree-contents.txt")]
+    defaultFlags = Map.fromList [("-f", baseDir </> "tree-contents.txt")]
 
 -- | Overwrites the file with contents hashes and return only the names for unchanged
 -- files.
@@ -60,16 +62,24 @@ checkUnchanged contentsFilePath filePaths = do
            report
              ("Previous content hashes file was not found, will create it: " ++
               contentsFilePath)
-  fmap catMaybes $
+  changedFiles <-
     withFile contentsFilePath WriteMode $ \hdl ->
       forM filePaths $ \fp -> do
         isDirectory <- doesDirectoryExist fp
         if isDirectory
-          then pure $ Just fp
+          then pure $ Right fp
           else do
           hash <- filter (not . isSpace) <$> readProcess "git" ["hash-object", fp] ""
           hPutStrLn hdl (hash ++ " " ++ fp)
-          pure $ guard (Just hash == Map.lookup fp oldHashesMap) >> Just fp
+          pure $ case Map.lookup fp oldHashesMap of
+            Just oldHash | oldHash == hash -> Right fp
+            Just _ -> Left fp
+            Nothing -> Left fp
+  let (changed, unchanged) = partitionEithers changedFiles
+  unless (null changed) $ do
+    let sep = "\n  * "
+    report $ "Previously not seen or changed files:" ++ sep ++ intercalate sep changed
+  pure unchanged
   where
     parseLine ln =
       case span (/= ' ') ln of
@@ -90,12 +100,12 @@ checkUnchanged contentsFilePath filePaths = do
 main :: IO ()
 main = do
   args <- getArgs
-  homeDir <- getHomeDirectory
+  appDir <- getAppUserDataDirectory "stack"
   let (rev, flags) =
         case args of
-          [] -> ("HEAD", toFlags homeDir [])
-          (('-':_):_) -> ("HEAD", toFlags homeDir args)
-          (r:rest) -> (r, toFlags homeDir rest)
+          [] -> ("HEAD", toFlags appDir [])
+          (('-':_):_) -> ("HEAD", toFlags appDir args)
+          (r:rest) -> (r, toFlags appDir rest)
   fs <- readProcess "git" ["ls-tree", "-r", "-t", "--full-name", "--name-only", rev] ""
   unchangedFiles <- checkUnchanged (flags Map.! "-f") $ lines fs
   if null unchangedFiles
