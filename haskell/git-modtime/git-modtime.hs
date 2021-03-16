@@ -106,7 +106,7 @@ main = do
           [] -> ("HEAD", toFlags appDir [])
           (('-':_):_) -> ("HEAD", toFlags appDir args)
           (r:rest) -> (r, toFlags appDir rest)
-  fs <- readProcess "git" ["ls-tree", "-r", "-t", "--full-name", "--name-only", rev] ""
+  fs <- readProcess "git" ["ls-tree", "-r", "-t", "--name-only", rev] ""
   unchangedFiles <- checkUnchanged (flags Map.! "-f") $ lines fs
   if null unchangedFiles
     then report "No unchanged files was found"
