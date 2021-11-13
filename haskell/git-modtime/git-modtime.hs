@@ -42,7 +42,7 @@ toFlags baseDir =
       let unknownFlags = Map.keys (flags Map.\\ defaultFlags)
       if not (null unknownFlags)
         then error $ prefix ++ "Unknown flags: " ++ intercalate ", " unknownFlags
-        else Map.union defaultFlags flags
+        else Map.union flags defaultFlags
     defaultFlags = Map.fromList [("-f", baseDir </> "tree-contents.txt")]
 
 -- | Overwrites the file with contents hashes and return only the names for unchanged
@@ -90,7 +90,7 @@ checkUnchanged contentsFilePath filePaths = do
 
 -- | Usage:
 --
--- stack runghc git-modtime.hs [REV] [-f CONTENTS_FILE]
+-- stack runghc -- git-modtime.hs [REV] [-f CONTENTS_FILE]
 --
 -- * REV - optional sha of a commit. Default is: HEAD
 --
