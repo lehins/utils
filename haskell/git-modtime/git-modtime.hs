@@ -20,6 +20,7 @@ import System.Process (readProcess)
 import System.IO (IOMode(WriteMode), withFile, hPutStrLn, stderr)
 import qualified Data.Map.Strict as Map
 
+
 prefix :: String
 prefix = "<git-modtime.hs> "
 
@@ -28,7 +29,7 @@ report msg = hPutStrLn stderr $ prefix ++ msg
 
 restoreFileModtime :: String -> FilePath -> IO ()
 restoreFileModtime rev fp = do
-  let iso8601 = iso8601DateFormat (Just "%H:%M:%S%z")
+  let iso8601 = "%Y-%m-%dT%H:%M:%S%z"
   modTimeStr <- readProcess "git" ["log", "--pretty=format:%cI", "-1", rev, "--", fp] ""
   modTime <- parseTimeM True defaultTimeLocale iso8601 modTimeStr
   setModificationTime fp modTime
