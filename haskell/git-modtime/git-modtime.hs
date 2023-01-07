@@ -11,10 +11,11 @@ import Data.Maybe
 import Data.Either (partitionEithers)
 import Data.Char (isSpace)
 import Control.Monad
-import Data.Time.Format (parseTimeM, iso8601DateFormat, defaultTimeLocale)
+import Data.Time.Format (parseTimeM, defaultTimeLocale)
 import System.FilePath (takeDirectory, (</>))
 import System.Directory
-  (setModificationTime, doesFileExist, doesDirectoryExist, getAppUserDataDirectory)
+  (setModificationTime, doesFileExist, createDirectoryIfMissing,
+   doesDirectoryExist, getAppUserDataDirectory)
 import System.Environment (getArgs)
 import System.Process (readProcess)
 import System.IO (IOMode(WriteMode), withFile, hPutStrLn, stderr)
@@ -50,10 +51,11 @@ toFlags baseDir =
 -- files.
 checkUnchanged :: FilePath -> [FilePath] -> IO [FilePath]
 checkUnchanged contentsFilePath filePaths = do
-  pathExists <- doesDirectoryExist (takeDirectory contentsFilePath)
-  unless pathExists $
-    error $
-    prefix ++ "Provided path does not exist: " ++ takeDirectory contentsFilePath
+  let dir = takeDirectory contentsFilePath
+  directoryExists <- doesDirectoryExist dir
+  unless directoryExists $
+    report $ "Directory " ++ show dir ++ " does not exist, creating it."
+  createDirectoryIfMissing True dir
   contentsFileExists <- doesFileExist contentsFilePath
   oldHashesMap <-
     if contentsFileExists
