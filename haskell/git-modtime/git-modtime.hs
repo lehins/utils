@@ -1,10 +1,10 @@
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ < 802
+#if __GLASGOW_HASKELL__ < 800
 main :: IO ()
 main = do
   let (ghcMaj, ghcMin) = divMod (__GLASGOW_HASKELL__ :: Int) 100
       ghcVer = show ghcMaj ++ "." ++ show ghcMin
-  putStrLn $ "GHC version: " ++ ghcVer ++ " is not supported by git-modtime script."
+  putStrLn $ "GHC version: " ++ ghcVer ++ " is not supported by git-modtime.hs script."
 #else
 import Data.List
 import Data.Maybe
