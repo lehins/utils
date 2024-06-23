@@ -30,7 +30,7 @@ report msg = hPutStrLn stderr $ prefix ++ msg
 
 restoreFileModtime :: String -> FilePath -> IO ()
 restoreFileModtime rev fp = do
-  let iso8601 = "%Y-%m-%dT%H:%M:%S%z"
+  let iso8601 = "%Y-%m-%dT%H:%M:%S%Z"
   modTimeStr <- readProcess "git" ["log", "--pretty=format:%cI", "-1", rev, "--", fp] ""
   modTime <- parseTimeM True defaultTimeLocale iso8601 modTimeStr
   setModificationTime fp modTime
